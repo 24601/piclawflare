@@ -120,15 +120,22 @@ export async function bootstrapRuntime(deps) {
                 // container process will be terminated by the DO after this returns.
             },
             triggerDueTasks: async () => {
-                // Execute due tasks through the existing scheduler mechanism
+                // Enqueue due tasks through the lane-aware queue (same path as the
+                // regular scheduler poll loop) so they serialise with any in-flight
+                // user-initiated agent runs on the same chat. Running tasks directly
+                // would bypass lane serialization and risk session state corruption.
                 const { runScheduledTask } = await import("../task-scheduler.js");
+                const { getTaskById: getTaskByIdFn } = await import("../db.js");
                 for (const task of getDueTasksFn()) {
-                    await runScheduledTask(task, {
+                    const cur = getTaskByIdFn(task.id);
+                    if (!cur || cur.status !== "active")
+                        continue;
+                    queue.enqueueTask(cur.id, () => runScheduledTask(cur, {
                         queue,
                         agentPool,
                         sendMessage: senders.sendMessage,
                         sendNudge: senders.sendNudge,
-                    });
+                    }), `chat:${cur.chat_jid}`);
                 }
             },
             getNextDueTaskTime: () => getNextDueTaskTimeFn(),

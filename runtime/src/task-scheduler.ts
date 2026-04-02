@@ -323,6 +323,10 @@ function syncAlarmCoordinator(): void {
   const nextRun = getNextDueTaskTime();
   if (nextRun) {
     getAlarmCoordinator()?.registerWakeUp("scheduler:next", nextRun);
+  } else {
+    // No active tasks with a next_run — clear the stale registration so the
+    // DO doesn't wake the container for a task that no longer exists.
+    getAlarmCoordinator()?.removeWakeUp("scheduler:next");
   }
 }
 

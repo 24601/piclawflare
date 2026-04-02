@@ -102,9 +102,14 @@ export async function handleCfEndpoint(
     return json({ error: "Unauthorized" }, 401);
   }
 
+  // Health endpoint is exempt from auth — it's a readiness probe that only
+  // returns {"status":"ready"|"starting"} with no sensitive data.  The wake
+  // page polls it from the browser (which doesn't have the internal secret).
+  if (pathname === "/_cf/health") {
+    return handleHealth();
+  }
+
   switch (pathname) {
-    case "/_cf/health":
-      return handleHealth();
     case "/_cf/activity":
       return handleActivity();
     case "/_cf/prepare-sleep":

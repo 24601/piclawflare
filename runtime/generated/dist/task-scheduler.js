@@ -271,6 +271,11 @@ function syncAlarmCoordinator() {
     if (nextRun) {
         getAlarmCoordinator()?.registerWakeUp("scheduler:next", nextRun);
     }
+    else {
+        // No active tasks with a next_run — clear the stale registration so the
+        // DO doesn't wake the container for a task that no longer exists.
+        getAlarmCoordinator()?.removeWakeUp("scheduler:next");
+    }
 }
 /** Guard to prevent starting the loop more than once. */
 let started = false;
