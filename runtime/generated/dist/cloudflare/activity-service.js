@@ -121,10 +121,11 @@ export function getActivityService() {
  * `runtime/bootstrap.ts` when `PICLAW_CF_ENABLED` is true.
  */
 export function createActivityService(sseIdleTimeoutMs) {
-    instance = new ActivityService(sseIdleTimeoutMs);
+    const resolvedTimeout = sseIdleTimeoutMs ?? 300_000;
+    instance = new ActivityService(resolvedTimeout);
     log.info("Activity service created", {
         operation: "create_activity_service",
-        sseIdleTimeoutMs: instance["sseIdleTimeoutMs"],
+        sseIdleTimeoutMs: resolvedTimeout,
     });
     return instance;
 }

@@ -109,17 +109,17 @@ export class RequestRouterService {
         }
         // Track the last seen origin so slash commands can build absolute links.
         rememberWebOrigin("web:default", req);
-        // Touch user-interaction timestamp for Cloudflare idle tracking.
-        // Excluded: /_cf/* (internal), /events (SSE), static assets.
-        if (!pathname.startsWith("/_cf/") &&
-            pathname !== "/events" &&
-            !pathname.startsWith("/static/")) {
-            getActivityService()?.touchUserInteraction();
-        }
         const flags = getRouteFlags(req, pathname);
         const guardResponse = await enforceRequestGuards(this.channel, req, pathname, flags);
         if (guardResponse) {
             return guardResponse;
+        }
+        // Touch user-interaction timestamp for Cloudflare idle tracking.
+        // Placed AFTER auth guards so unauthenticated requests don't keep the
+        // container awake. Excluded: /events (SSE), static assets.
+        if (pathname !== "/events" &&
+            !pathname.startsWith("/static/")) {
+            getActivityService()?.touchUserInteraction();
         }
         const authRouteResponse = await handleAuthRoutes(this.channel, req, flags);
         if (authRouteResponse) {

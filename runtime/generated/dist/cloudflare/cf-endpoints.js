@@ -39,9 +39,12 @@ export function setCfEndpointDeps(d) {
 // ---------------------------------------------------------------------------
 function isAuthorized(req) {
     const config = getCloudflareConfig();
-    // If no secret is configured, allow all (development mode).
-    if (!config.internalSecret)
-        return true;
+    if (!config.internalSecret) {
+        // Fail closed: deny all /_cf/* requests when no secret is configured.
+        // Operators must set PICLAW_CF_INTERNAL_SECRET to use CF endpoints.
+        log.error("Cloudflare internal endpoints are enabled but PICLAW_CF_INTERNAL_SECRET is not configured; denying /_cf/* request.", { operation: "is_authorized.no_secret" });
+        return false;
+    }
     const header = req.headers.get("x-cf-internal-secret") || "";
     return header === config.internalSecret;
 }
