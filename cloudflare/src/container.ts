@@ -80,20 +80,28 @@ export class PiClawContainer extends Container<Env> {
 
     try {
       const resp = await this.internalFetch("/_cf/activity");
-      if (resp.ok) {
-        const data: unknown = await resp.json();
-        if (data && typeof data === "object" && "idle" in data) {
-          if ((data as { idle: boolean }).idle === false) {
-            // Container is busy — renew timeout and check again later.
-            this.renewActivityTimeout();
-            return;
-          }
-        } else {
-          // Unexpected response format — assume busy to be safe.
-          console.warn("[PiClawContainer] Unexpected /_cf/activity response:", data);
+      if (!resp.ok) {
+        // Non-OK response (401, 500, 503, etc.) — assume busy to be safe.
+        // A transient error or auth misconfiguration should not kill the
+        // container; renew the timeout and let the next check try again.
+        console.warn(
+          `[PiClawContainer] /_cf/activity returned ${resp.status}; assuming busy`,
+        );
+        this.renewActivityTimeout();
+        return;
+      }
+      const data: unknown = await resp.json();
+      if (data && typeof data === "object" && "idle" in data) {
+        if ((data as { idle: boolean }).idle === false) {
+          // Container is busy — renew timeout and check again later.
           this.renewActivityTimeout();
           return;
         }
+      } else {
+        // Unexpected response format — assume busy to be safe.
+        console.warn("[PiClawContainer] Unexpected /_cf/activity response:", data);
+        this.renewActivityTimeout();
+        return;
       }
     } catch {
       // Can't reach container — it may already be stopped. Let it go.
@@ -315,10 +323,19 @@ export class PiClawContainer extends Container<Env> {
     });
   }
 
-  /** Check if the request carries the correct internal secret. */
+  /**
+   * Check if the request carries the correct internal secret.
+   * Fails closed (denies) when no secret is configured — matching the
+   * container-side `isAuthorized()` in `cf-endpoints.ts`.
+   */
   private isInternalAuthorized(req: Request): boolean {
     const expected = this.env.PICLAW_CF_INTERNAL_SECRET;
-    if (!expected) return true; // No secret configured — allow (dev mode).
+    if (!expected) {
+      console.error(
+        "[PiClawContainer] PICLAW_CF_INTERNAL_SECRET is not configured; denying /_cf/* request.",
+      );
+      return false;
+    }
     return req.headers.get("x-cf-internal-secret") === expected;
   }
 
