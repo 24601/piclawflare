@@ -81,9 +81,16 @@ export class PiClawContainer extends Container<Env> {
     try {
       const resp = await this.internalFetch("/_cf/activity");
       if (resp.ok) {
-        const data = (await resp.json()) as { idle?: boolean };
-        if (!data.idle) {
-          // Container is busy — renew timeout and check again later.
+        const data: unknown = await resp.json();
+        if (data && typeof data === "object" && "idle" in data) {
+          if ((data as { idle: boolean }).idle === false) {
+            // Container is busy — renew timeout and check again later.
+            this.renewActivityTimeout();
+            return;
+          }
+        } else {
+          // Unexpected response format — assume busy to be safe.
+          console.warn("[PiClawContainer] Unexpected /_cf/activity response:", data);
           this.renewActivityTimeout();
           return;
         }
@@ -115,10 +122,16 @@ export class PiClawContainer extends Container<Env> {
     const { pathname } = url;
 
     // ── Internal DO-level endpoints (not proxied to container) ──
-    if (pathname === "/_cf/alarm/register") {
-      return this.handleAlarmRegistration(request);
-    }
-    if (pathname === "/_cf/scheduled-check") {
+    if (pathname === "/_cf/alarm/register" || pathname === "/_cf/scheduled-check") {
+      if (!this.isInternalAuthorized(request)) {
+        return new Response(JSON.stringify({ error: "Unauthorized" }), {
+          status: 401,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      if (pathname === "/_cf/alarm/register") {
+        return this.handleAlarmRegistration(request);
+      }
       return this.handleScheduledCheck();
     }
 
@@ -258,7 +271,7 @@ export class PiClawContainer extends Container<Env> {
       await this.schedule(
         new Date(nextMs),
         TASK_WAKE_CALLBACK,
-        "task-wake-sync",
+        "task-wake",
       );
     } catch {
       // Container may not be ready — cron will retry next minute.
@@ -292,17 +305,21 @@ export class PiClawContainer extends Container<Env> {
     init?: RequestInit,
   ): Promise<Response> {
     const port = this.ctx.container.getTcpPort(this.defaultPort);
-    const headers: Record<string, string> = {};
+    const headers = new Headers(init?.headers);
     if (this.env.PICLAW_CF_INTERNAL_SECRET) {
-      headers["x-cf-internal-secret"] = this.env.PICLAW_CF_INTERNAL_SECRET;
+      headers.set("x-cf-internal-secret", this.env.PICLAW_CF_INTERNAL_SECRET);
     }
     return port.fetch(`http://localhost${path}`, {
       ...init,
-      headers: {
-        ...headers,
-        ...((init?.headers as Record<string, string>) || {}),
-      },
+      headers,
     });
+  }
+
+  /** Check if the request carries the correct internal secret. */
+  private isInternalAuthorized(req: Request): boolean {
+    const expected = this.env.PICLAW_CF_INTERNAL_SECRET;
+    if (!expected) return true; // No secret configured — allow (dev mode).
+    return req.headers.get("x-cf-internal-secret") === expected;
   }
 
   /** Whether the WhatsApp keep-awake mode is active. */

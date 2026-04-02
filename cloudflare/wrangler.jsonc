@@ -2,7 +2,7 @@
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "piclawflare",
   "main": "src/worker.ts",
-  "compatibility_date": "2025-04-01",
+  "compatibility_date": "2025-03-01",
 
   // ---------------------------------------------------------------------------
   // Container definition – PiClaw runs inside a single container instance.

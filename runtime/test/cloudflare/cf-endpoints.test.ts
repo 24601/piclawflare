@@ -37,7 +37,7 @@ describe("CF endpoints", () => {
 
   beforeEach(() => {
     createActivityService(5000);
-    createAlarmCoordinator(null, "test-secret");
+    createAlarmCoordinator();
 
     triggerDueTasksCalled = false;
     prepareSleepCalled = false;
@@ -133,7 +133,7 @@ describe("CF endpoints", () => {
   // ── AlarmCoordinator integration ───────────────────────────────
 
   it("alarm coordinator tracks next wake-up time", () => {
-    const coordinator = createAlarmCoordinator(null, "secret");
+    const coordinator = createAlarmCoordinator();
     const future = new Date(Date.now() + 60_000).toISOString();
     coordinator.registerWakeUp("test", future);
     expect(coordinator.getNextWakeUp()).toBe(future);

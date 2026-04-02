@@ -7,7 +7,6 @@ import {
   getIdentityConfig,
   getRoutingConfig,
   getRuntimeTimingConfig,
-  getWebServerConfig,
   getWhatsAppConfig,
 } from "../core/config.js";
 import {
@@ -98,7 +97,7 @@ export interface RuntimeBootstrapDeps {
   registerOptionalProviders(agentPool: RuntimeBootstrapAgentPool): void;
   startWebChannel(queue: RuntimeBootstrapQueue, agentPool: RuntimeBootstrapAgentPool): Promise<RuntimeBootstrapWeb>;
   startOptionalPushoverChannel(): Promise<RuntimeBootstrapPushover | null>;
-  createWhatsAppChannel(state: RuntimeBootstrapState): RuntimeBootstrapWhatsApp;
+  createWhatsAppChannel(state: RuntimeBootstrapState, options?: { disable?: boolean }): RuntimeBootstrapWhatsApp;
   createShutdownHandler(deps: ShutdownDeps): (signal: string) => Promise<void>;
   registerRuntimeShutdownSignals(
     registrar: RuntimeSignalRegistrar,
@@ -136,7 +135,7 @@ export function createDefaultRuntimeBootstrapDeps(core: RuntimeBootstrapDefaultC
     registerOptionalProviders: () => registerOptionalProviders(core.agentPool),
     startWebChannel: () => startWebChannel(core.queue, core.agentPool),
     startOptionalPushoverChannel: () => startOptionalPushoverChannel(),
-    createWhatsAppChannel: () => createWhatsAppChannel(core.state),
+    createWhatsAppChannel: (_state, options?) => createWhatsAppChannel(core.state, options),
     createShutdownHandler,
     registerRuntimeShutdownSignals,
     createRuntimeSenders,
@@ -162,10 +161,10 @@ export async function bootstrapRuntime(deps: RuntimeBootstrapDeps): Promise<void
   const cfConfig = getCloudflareConfig();
   if (cfConfig.enabled) {
     const activityService = createActivityService(cfConfig.sseIdleTimeoutMs);
-    // The alarm coordinator runs in local-only mode initially — it tracks
-    // next-wake-up times for the /_cf/tasks/next-due endpoint.  The DO
-    // calls /_cf/alarm/register separately to set its persistent alarms.
-    createAlarmCoordinator(null, cfConfig.internalSecret);
+    // The alarm coordinator tracks next-wake-up times for the
+    // /_cf/tasks/next-due endpoint.  The DO pulls this value and uses it
+    // to set its persistent alarm.
+    createAlarmCoordinator();
     log.info("Cloudflare Containers mode enabled", {
       operation: "bootstrap.cf_init",
       sseIdleTimeoutMs: cfConfig.sseIdleTimeoutMs,
@@ -198,25 +197,10 @@ export async function bootstrapRuntime(deps: RuntimeBootstrapDeps): Promise<void
   const web = await deps.startWebChannel(queue, agentPool);
   const pushover = await deps.startOptionalPushoverChannel();
 
-  // In CF disabled mode, create WhatsApp normally.
-  // In CF keep-awake mode, also create WhatsApp normally.
-  // In CF disabled WhatsApp mode, the stub is used (WHATSAPP_PHONE is effectively empty).
+  // In CF disabled WhatsApp mode, explicitly pass disable:true so the no-op
+  // stub is used without mutating global env state.
   const shouldDisableWhatsApp = cfConfig.enabled && cfConfig.whatsappMode === "disabled";
-  const origPhone = process.env.WHATSAPP_PHONE;
-  const origPiclawPhone = process.env.PICLAW_WHATSAPP_PHONE;
-  if (shouldDisableWhatsApp) {
-    // Temporarily clear phone env vars so the stub is used
-    process.env.WHATSAPP_PHONE = "";
-    process.env.PICLAW_WHATSAPP_PHONE = "";
-  }
-  const whatsapp = deps.createWhatsAppChannel(state);
-  if (shouldDisableWhatsApp) {
-    // Restore env vars
-    if (origPhone !== undefined) process.env.WHATSAPP_PHONE = origPhone;
-    else delete process.env.WHATSAPP_PHONE;
-    if (origPiclawPhone !== undefined) process.env.PICLAW_WHATSAPP_PHONE = origPiclawPhone;
-    else delete process.env.PICLAW_WHATSAPP_PHONE;
-  }
+  const whatsapp = deps.createWhatsAppChannel(state, shouldDisableWhatsApp ? { disable: true } : undefined);
 
   const shutdown = deps.createShutdownHandler({
     queue,
@@ -252,8 +236,10 @@ export async function bootstrapRuntime(deps: RuntimeBootstrapDeps): Promise<void
         }
         // Save runtime state timestamps
         state.saveTimestamps();
-        // Shut down the agent pool (closes idle sessions)
-        await agentPool.shutdown();
+        // Note: we do NOT call agentPool.shutdown() here because it
+        // permanently destroys the pool. If the container survives (e.g. the
+        // DO stop call is delayed), subsequent agent runs would fail. The
+        // container process will be terminated by the DO after this returns.
       },
       triggerDueTasks: async () => {
         // Execute due tasks through the existing scheduler mechanism

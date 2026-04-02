@@ -53,8 +53,15 @@ export default {
     const stub = env.PICLAW_CONTAINER.get(id);
 
     try {
+      const headers: Record<string, string> = {};
+      if (env.PICLAW_CF_INTERNAL_SECRET) {
+        headers["x-cf-internal-secret"] = env.PICLAW_CF_INTERNAL_SECRET;
+      }
       await stub.fetch(
-        new Request("http://internal/_cf/scheduled-check", { method: "POST" }),
+        new Request("http://internal/_cf/scheduled-check", {
+          method: "POST",
+          headers,
+        }),
       );
     } catch (err) {
       // Cron failures are retried by the platform.  Log for observability.

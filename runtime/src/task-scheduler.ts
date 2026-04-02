@@ -212,83 +212,85 @@ export async function runScheduledTask(task: ScheduledTask, deps: SchedulerDeps)
   let result: string | null = null;
   let error: string | null = null;
 
-  const kind = task.task_kind === "shell" || task.command ? "shell" : "agent";
+  try {
+    const kind = task.task_kind === "shell" || task.command ? "shell" : "agent";
 
-  if (kind === "shell") {
-    const out = await runShellTask(task);
-    if (out.error) {
-      error = out.error;
-    } else if (out.result) {
-      result = out.result;
-      const t = formatOutbound(result, detectChannel(task.chat_jid));
-      if (t) {
-        await deps.sendMessage(task.chat_jid, t, { forceRoot: true, source: "scheduled" });
-        await deps.sendNudge?.(t);
-      }
-    }
-  } else {
-    // Save session position so we can restore after the task.
-    // This isolates the task's prompt/response in a side branch of the session
-    // tree, preventing context pollution of the user's conversation.
-    const savedLeafId = await deps.agentPool.saveSessionPosition(task.chat_jid);
-    const savedModel = await deps.agentPool.getCurrentModelLabel(task.chat_jid);
-
-    try {
-      // Switch model if task specifies one.
-      if (task.model) {
-        if (!savedModel || savedModel !== task.model) {
-          error = await switchTaskModel(task, deps);
+    if (kind === "shell") {
+      const out = await runShellTask(task);
+      if (out.error) {
+        error = out.error;
+      } else if (out.result) {
+        result = out.result;
+        const t = formatOutbound(result, detectChannel(task.chat_jid));
+        if (t) {
+          await deps.sendMessage(task.chat_jid, t, { forceRoot: true, source: "scheduled" });
+          await deps.sendNudge?.(t);
         }
       }
+    } else {
+      // Save session position so we can restore after the task.
+      // This isolates the task's prompt/response in a side branch of the session
+      // tree, preventing context pollution of the user's conversation.
+      const savedLeafId = await deps.agentPool.saveSessionPosition(task.chat_jid);
+      const savedModel = await deps.agentPool.getCurrentModelLabel(task.chat_jid);
 
-      if (!error) {
-        const out = await deps.agentPool.runAgent(task.prompt, task.chat_jid);
-        if (out.status === "error") {
-          error = out.error || "Unknown";
-        } else if (out.result) {
-          result = out.result;
-          const t = formatOutbound(result, detectChannel(task.chat_jid));
-          if (t) {
-            await deps.sendMessage(task.chat_jid, t, { forceRoot: true, source: "scheduled" });
-            await deps.sendNudge?.(t);
+      try {
+        // Switch model if task specifies one.
+        if (task.model) {
+          if (!savedModel || savedModel !== task.model) {
+            error = await switchTaskModel(task, deps);
           }
         }
+
+        if (!error) {
+          const out = await deps.agentPool.runAgent(task.prompt, task.chat_jid);
+          if (out.status === "error") {
+            error = out.error || "Unknown";
+          } else if (out.result) {
+            result = out.result;
+            const t = formatOutbound(result, detectChannel(task.chat_jid));
+            if (t) {
+              await deps.sendMessage(task.chat_jid, t, { forceRoot: true, source: "scheduled" });
+              await deps.sendNudge?.(t);
+            }
+          }
+        }
+      } catch (e) {
+        error = e instanceof Error ? e.message : String(e);
+      } finally {
+        // Navigate back to the saved position — the task's prompt and response
+        // stay in a side branch and won't pollute the user's conversation context.
+        await deps.agentPool.restoreSessionPosition(task.chat_jid, savedLeafId);
+
+        // Restore the original model if it was changed.
+        await restoreOriginalModel(task, deps, savedModel);
       }
-    } catch (e) {
-      error = e instanceof Error ? e.message : String(e);
-    } finally {
-      // Navigate back to the saved position — the task's prompt and response
-      // stay in a side branch and won't pollute the user's conversation context.
-      await deps.agentPool.restoreSessionPosition(task.chat_jid, savedLeafId);
-
-      // Restore the original model if it was changed.
-      await restoreOriginalModel(task, deps, savedModel);
     }
-  }
 
-  if (error) schedulerMetrics.taskRunsFailed += 1;
-  else schedulerMetrics.taskRunsSucceeded += 1;
+    if (error) schedulerMetrics.taskRunsFailed += 1;
+    else schedulerMetrics.taskRunsSucceeded += 1;
 
-  // Record the run in the task_run_logs table.
-  logTaskRun({
-    task_id: task.id,
-    run_at: new Date().toISOString(),
-    duration_ms: Date.now() - start,
-    status: error ? "error" : "success",
-    result,
-    error,
-  });
+    // Record the run in the task_run_logs table.
+    logTaskRun({
+      task_id: task.id,
+      run_at: new Date().toISOString(),
+      duration_ms: Date.now() - start,
+      status: error ? "error" : "success",
+      result,
+      error,
+    });
 
-  // Compute and persist the next execution time (null for one-shot tasks).
-  const nextRun = computeNextRun(task.schedule_type, task.schedule_value);
-  updateTaskAfterRun(task.id, nextRun, error ? `Error: ${error}` : (result?.slice(0, 200) || "Completed"));
+    // Compute and persist the next execution time (null for one-shot tasks).
+    const nextRun = computeNextRun(task.schedule_type, task.schedule_value);
+    updateTaskAfterRun(task.id, nextRun, error ? `Error: ${error}` : (result?.slice(0, 200) || "Completed"));
 
-  // Unregister the activity signal now that the task has finished.
-  getActivityService()?.unregister(activityId);
-
-  // Register a wake-up alarm for the next run with the CF alarm coordinator.
-  if (nextRun) {
-    getAlarmCoordinator()?.registerWakeUp(`task:${task.id}`, nextRun);
+    // Register a wake-up alarm for the next run with the CF alarm coordinator.
+    if (nextRun) {
+      getAlarmCoordinator()?.registerWakeUp(`task:${task.id}`, nextRun);
+    }
+  } finally {
+    // Always unregister the activity signal — even if the task threw.
+    getActivityService()?.unregister(activityId);
   }
 }
 
@@ -304,7 +306,11 @@ export function getNextDueTaskTime(): string | null {
       )
       .get() as { next_run: string } | undefined;
     return row?.next_run || null;
-  } catch {
+  } catch (err) {
+    log.error("Failed to get next due task time from DB", {
+      operation: "getNextDueTaskTime",
+      err,
+    });
     return null;
   }
 }

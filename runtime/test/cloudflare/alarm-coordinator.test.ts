@@ -13,8 +13,7 @@ describe("AlarmCoordinator", () => {
   let coordinator: AlarmCoordinator;
 
   beforeEach(() => {
-    // Local-only mode (no HTTP) for unit tests.
-    coordinator = new AlarmCoordinator(null, "");
+    coordinator = new AlarmCoordinator();
   });
 
   // ── Registration and retrieval ─────────────────────────────────
@@ -100,7 +99,7 @@ describe("AlarmCoordinator", () => {
 
   it("createAlarmCoordinator sets the singleton", () => {
     destroyAlarmCoordinator();
-    const created = createAlarmCoordinator(null, "secret");
+    const created = createAlarmCoordinator();
     expect(getAlarmCoordinator()).toBe(created);
     destroyAlarmCoordinator();
   });

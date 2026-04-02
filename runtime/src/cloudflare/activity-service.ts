@@ -195,10 +195,11 @@ export function getActivityService(): ActivityService | null {
 export function createActivityService(
   sseIdleTimeoutMs?: number,
 ): ActivityService {
-  instance = new ActivityService(sseIdleTimeoutMs);
+  const resolvedTimeout = sseIdleTimeoutMs ?? 300_000;
+  instance = new ActivityService(resolvedTimeout);
   log.info("Activity service created", {
     operation: "create_activity_service",
-    sseIdleTimeoutMs: instance["sseIdleTimeoutMs"],
+    sseIdleTimeoutMs: resolvedTimeout,
   });
   return instance;
 }

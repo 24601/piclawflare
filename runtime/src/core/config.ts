@@ -937,14 +937,17 @@ export const CLOUDFLARE_CONFIG = Object.freeze<CloudflareConfig>({
     envConfig.PICLAW_CF_INTERNAL_SECRET ||
     pickString(cfConfig, ["internalSecret", "internal_secret", "PICLAW_CF_INTERNAL_SECRET"]) ||
     "",
-  sseIdleTimeoutMs: parseInt(
-    process.env.PICLAW_CF_SSE_IDLE_TIMEOUT ||
-      envConfig.PICLAW_CF_SSE_IDLE_TIMEOUT ||
-      String(
-        pickNumber(cfConfig, ["sseIdleTimeoutMs", "sse_idle_timeout_ms", "PICLAW_CF_SSE_IDLE_TIMEOUT"]) ?? 300000,
-      ),
-    10,
-  ),
+  sseIdleTimeoutMs: (() => {
+    const parsed = parseInt(
+      process.env.PICLAW_CF_SSE_IDLE_TIMEOUT ||
+        envConfig.PICLAW_CF_SSE_IDLE_TIMEOUT ||
+        String(
+          pickNumber(cfConfig, ["sseIdleTimeoutMs", "sse_idle_timeout_ms", "PICLAW_CF_SSE_IDLE_TIMEOUT"]) ?? 300000,
+        ),
+      10,
+    );
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : 300000;
+  })(),
   whatsappMode: parseCfWhatsAppMode(
     process.env.PICLAW_CF_WHATSAPP_MODE ||
       envConfig.PICLAW_CF_WHATSAPP_MODE ||
