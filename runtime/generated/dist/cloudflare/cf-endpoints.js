@@ -62,15 +62,16 @@ export async function handleCfEndpoint(req, pathname) {
         return null;
     if (!getCloudflareConfig().enabled)
         return null;
-    // Auth check — all /_cf/* endpoints require the internal secret.
-    if (!isAuthorized(req)) {
-        return json({ error: "Unauthorized" }, 401);
-    }
     // Health endpoint is exempt from auth — it's a readiness probe that only
     // returns {"status":"ready"|"starting"} with no sensitive data.  The wake
     // page polls it from the browser (which doesn't have the internal secret).
+    // Must be checked BEFORE the auth guard below.
     if (pathname === "/_cf/health") {
         return handleHealth();
+    }
+    // Auth check — all other /_cf/* endpoints require the internal secret.
+    if (!isAuthorized(req)) {
+        return json({ error: "Unauthorized" }, 401);
     }
     switch (pathname) {
         case "/_cf/activity":
