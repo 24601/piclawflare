@@ -67,6 +67,10 @@ const envConfig = readEnvFile([
     "PICLAW_REMOTE_INTEROP_DECISION_MODEL",
     "PICLAW_LOG_LEVEL",
     "LOG_LEVEL",
+    "PICLAW_CF_ENABLED",
+    "PICLAW_CF_INTERNAL_SECRET",
+    "PICLAW_CF_SSE_IDLE_TIMEOUT",
+    "PICLAW_CF_WHATSAPP_MODE",
 ]);
 // ---------------------------------------------------------------------------
 // Helpers for extracting typed values from a config object.
@@ -634,4 +638,35 @@ export const PUSHOVER_CONFIG = Object.freeze({
 /** Return the grouped Pushover settings for startup wiring and tests. */
 export function getPushoverConfig() {
     return PUSHOVER_CONFIG;
+}
+function parseCfWhatsAppMode(raw) {
+    const normalized = (raw || "").trim().toLowerCase();
+    if (normalized === "keep-awake" || normalized === "keep_awake" || normalized === "keepawake") {
+        return "keep-awake";
+    }
+    if (normalized === "cloud-api" || normalized === "cloud_api" || normalized === "cloudapi") {
+        return "cloud-api";
+    }
+    return "disabled";
+}
+const cfConfig = piclawConfig.cloudflare && typeof piclawConfig.cloudflare === "object"
+    ? piclawConfig.cloudflare
+    : piclawConfig;
+/** Grouped Cloudflare Containers settings. */
+export const CLOUDFLARE_CONFIG = Object.freeze({
+    enabled: pickBoolean({ PICLAW_CF_ENABLED: process.env.PICLAW_CF_ENABLED ?? envConfig.PICLAW_CF_ENABLED }, ["PICLAW_CF_ENABLED"]) ?? pickBoolean(cfConfig, ["enabled", "cf_enabled", "PICLAW_CF_ENABLED"]) ?? false,
+    internalSecret: process.env.PICLAW_CF_INTERNAL_SECRET ||
+        envConfig.PICLAW_CF_INTERNAL_SECRET ||
+        pickString(cfConfig, ["internalSecret", "internal_secret", "PICLAW_CF_INTERNAL_SECRET"]) ||
+        "",
+    sseIdleTimeoutMs: parseInt(process.env.PICLAW_CF_SSE_IDLE_TIMEOUT ||
+        envConfig.PICLAW_CF_SSE_IDLE_TIMEOUT ||
+        String(pickNumber(cfConfig, ["sseIdleTimeoutMs", "sse_idle_timeout_ms", "PICLAW_CF_SSE_IDLE_TIMEOUT"]) ?? 300000), 10),
+    whatsappMode: parseCfWhatsAppMode(process.env.PICLAW_CF_WHATSAPP_MODE ||
+        envConfig.PICLAW_CF_WHATSAPP_MODE ||
+        pickString(cfConfig, ["whatsappMode", "whatsapp_mode", "PICLAW_CF_WHATSAPP_MODE"])),
+});
+/** Return the grouped Cloudflare Containers settings for runtime wiring and tests. */
+export function getCloudflareConfig() {
+    return CLOUDFLARE_CONFIG;
 }

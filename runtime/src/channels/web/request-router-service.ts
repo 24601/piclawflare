@@ -26,6 +26,8 @@
 
 import { extname, resolve } from "path";
 import { createUuid } from "../../utils/ids.js";
+import { handleCfEndpoint } from "../../cloudflare/cf-endpoints.js";
+import { getActivityService } from "../../cloudflare/activity-service.js";
 import type { WebChannelLike } from "./core/web-channel-contracts.js";
 import { rememberWebOrigin } from "./auth/request-origin.js";
 import { handleAgentRoutes } from "./http/dispatch-agent.js";
@@ -106,12 +108,28 @@ export class RequestRouterService {
     const url = new URL(req.url);
     const pathname = url.pathname;
 
+    // ── Cloudflare internal endpoints (before auth, before remote) ──
+    if (pathname.startsWith("/_cf/")) {
+      const cfResponse = await handleCfEndpoint(req, pathname);
+      if (cfResponse) return cfResponse;
+    }
+
     if (pathname.startsWith("/api/remote/")) {
       return await this.channel.handleRemote(req);
     }
 
     // Track the last seen origin so slash commands can build absolute links.
     rememberWebOrigin("web:default", req);
+
+    // Touch user-interaction timestamp for Cloudflare idle tracking.
+    // Excluded: /_cf/* (internal), /events (SSE), static assets.
+    if (
+      !pathname.startsWith("/_cf/") &&
+      pathname !== "/events" &&
+      !pathname.startsWith("/static/")
+    ) {
+      getActivityService()?.touchUserInteraction();
+    }
 
     const flags = getRouteFlags(req, pathname);
     const guardResponse = await enforceRequestGuards(this.channel, req, pathname, flags);

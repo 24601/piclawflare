@@ -20,6 +20,7 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, unlinkSync } from "fs";
 import { basename, join } from "path";
 import { CronExpressionParser } from "cron-parser";
+import { getActivityService } from "./cloudflare/activity-service.js";
 import { DATA_DIR, getRuntimeTimingConfig } from "./core/config.js";
 import { MediaService } from "./channels/web/media/media-service.js";
 import { createTask, deleteTask, getTaskById, updateTask } from "./db.js";
@@ -123,6 +124,13 @@ async function processIpcDir(dirPath, ipcDir, kind, handler) {
         return;
     for (const file of readdirSync(dirPath).filter((f) => f.endsWith(".json"))) {
         const fp = join(dirPath, file);
+        const activityId = `ipc-${kind}-${file}-${Date.now()}`;
+        getActivityService()?.register({
+            kind: "ipc_processing",
+            id: activityId,
+            description: `IPC ${kind}: ${file}`,
+            startedAt: Date.now(),
+        });
         try {
             const parsed = JSON.parse(readFileSync(fp, "utf-8"));
             if (!isJsonRecord(parsed)) {
@@ -144,6 +152,9 @@ async function processIpcDir(dirPath, ipcDir, kind, handler) {
             catch {
                 /* expected: preserving the original file is acceptable when renaming the failed payload also fails. */
             }
+        }
+        finally {
+            getActivityService()?.unregister(activityId);
         }
     }
 }

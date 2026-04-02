@@ -6,6 +6,7 @@ import { shouldCompact, type AgentSession } from "@mariozechner/pi-coding-agent"
 
 import type { AttachmentInfo } from "./attachments.js";
 
+import { getActivityService } from "../cloudflare/activity-service.js";
 import { getAgentRuntimeConfig, getSessionStorageConfig } from "../core/config.js";
 import { detectChannel } from "../router.js";
 import { pruneOrphanToolResults } from "./orphan-tool-results.js";
@@ -159,6 +160,14 @@ export async function runAgentPrompt(
   options: RunAgentOrchestratorOptions,
 ): Promise<AgentOutput> {
   const startTime = Date.now();
+  const activityId = `agent-run-${chatJid}-${startTime}`;
+  getActivityService()?.register({
+    kind: "agent_run",
+    id: activityId,
+    description: `Agent run for ${chatJid}`,
+    startedAt: startTime,
+    chatJid,
+  });
   options.clearAttachments(chatJid);
 
   try {
@@ -229,5 +238,6 @@ export async function runAgentPrompt(
     return { status: "error", result: null, error: errorMsg };
   } finally {
     options.clearActiveForkBaseLeaf(chatJid);
+    getActivityService()?.unregister(activityId);
   }
 }

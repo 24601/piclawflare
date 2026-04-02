@@ -7,6 +7,7 @@
  * Consumers: web/sse-hub.ts builds on these primitives.
  */
 
+import { getActivityService } from "../../../cloudflare/activity-service.js";
 import { createLogger } from "../../../utils/logger.js";
 import { getAppAssetVersion } from "../http/static.js";
 
@@ -84,6 +85,7 @@ export function handleSse(channel: SseClientContainer, req?: Request): Response 
 
   let clientRef: PendingClient | null = null;
   const chatJid = req ? (new URL(req.url).searchParams.get("chat_jid") || "").trim() || null : null;
+  const sseClientId = `sse-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 
   const stream = new ReadableStream<Uint8Array>({
     start: (controller) => {
@@ -94,17 +96,29 @@ export function handleSse(channel: SseClientContainer, req?: Request): Response 
         } catch {
           clearInterval(heartbeat);
           if (clientRef) channel.clients.delete(clientRef);
+          getActivityService()?.unregister(sseClientId);
         }
       }, 30000);
       clientRef = { controller, heartbeat, chatJid };
       channel.clients.add(clientRef);
       controller.enqueue(encoder.encode(`event: connected\ndata: ${JSON.stringify({ app_asset_version: getAppAssetVersion(), ...(chatJid ? { chat_jid: chatJid } : {}) })}\n\n`));
+
+      // Register SSE client as an activity (with sse_client kind, which gets
+      // special idle-timeout treatment in ActivityService).
+      getActivityService()?.register({
+        kind: "sse_client",
+        id: sseClientId,
+        description: chatJid ? `SSE client for ${chatJid}` : "SSE client",
+        startedAt: Date.now(),
+        chatJid: chatJid ?? undefined,
+      });
     },
     cancel: () => {
       if (clientRef) {
         clearInterval(clientRef.heartbeat);
         channel.clients.delete(clientRef);
       }
+      getActivityService()?.unregister(sseClientId);
     },
   });
 

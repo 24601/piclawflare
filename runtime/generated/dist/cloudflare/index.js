@@ -1,0 +1,10 @@
+/**
+ * cloudflare/index.ts – Public barrel export for Cloudflare Containers integration.
+ *
+ * Re-exports the activity service, alarm coordinator, and CF endpoint handler
+ * so consumers can import from a single path:
+ *   import { getActivityService, getAlarmCoordinator } from "./cloudflare/index.js";
+ */
+export { ActivityService, createActivityService, destroyActivityService, getActivityService, } from "./activity-service.js";
+export { AlarmCoordinator, createAlarmCoordinator, destroyAlarmCoordinator, getAlarmCoordinator, } from "./alarm-coordinator.js";
+export { handleCfEndpoint, setCfEndpointDeps, } from "./cf-endpoints.js";

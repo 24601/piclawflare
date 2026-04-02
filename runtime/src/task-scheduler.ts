@@ -19,10 +19,12 @@
  *   - The AgentQueue (queue.ts) serialises task execution with user messages per chat lane while allowing unrelated chats to progress in parallel.
  */
 
+import { getActivityService } from "./cloudflare/activity-service.js";
+import { getAlarmCoordinator } from "./cloudflare/alarm-coordinator.js";
 import { WORKSPACE_DIR, getRuntimeTimingConfig } from "./core/config.js";
 import { computeNextRun } from "./task-scheduler-utils.js";
 import type { AgentPool } from "./agent-pool.js";
-import { getDueTasks, getTaskById, logTaskRun, updateTaskAfterRun } from "./db.js";
+import { getDueTasks, getDb, getTaskById, logTaskRun, updateTaskAfterRun } from "./db.js";
 import { AgentQueue } from "./queue.js";
 import { detectChannel, formatOutbound } from "./router.js";
 import type { ScheduledTask } from "./types.js";
@@ -198,6 +200,14 @@ export async function runScheduledTask(task: ScheduledTask, deps: SchedulerDeps)
   if (!fresh || fresh.status !== "active") return;
 
   const start = Date.now();
+  const activityId = `task-${task.id}-${start}`;
+  getActivityService()?.register({
+    kind: "task_execution",
+    id: activityId,
+    description: `Scheduled task ${task.id}`,
+    startedAt: start,
+    chatJid: task.chat_jid,
+  });
   schedulerMetrics.taskRunsStarted += 1;
   let result: string | null = null;
   let error: string | null = null;
@@ -272,6 +282,42 @@ export async function runScheduledTask(task: ScheduledTask, deps: SchedulerDeps)
   // Compute and persist the next execution time (null for one-shot tasks).
   const nextRun = computeNextRun(task.schedule_type, task.schedule_value);
   updateTaskAfterRun(task.id, nextRun, error ? `Error: ${error}` : (result?.slice(0, 200) || "Completed"));
+
+  // Unregister the activity signal now that the task has finished.
+  getActivityService()?.unregister(activityId);
+
+  // Register a wake-up alarm for the next run with the CF alarm coordinator.
+  if (nextRun) {
+    getAlarmCoordinator()?.registerWakeUp(`task:${task.id}`, nextRun);
+  }
+}
+
+/**
+ * Return the earliest `next_run` of all active scheduled tasks, or null.
+ * Used by the `/_cf/tasks/next-due` endpoint and alarm coordinator sync.
+ */
+export function getNextDueTaskTime(): string | null {
+  try {
+    const row = getDb()
+      .prepare(
+        "SELECT next_run FROM scheduled_tasks WHERE status = 'active' AND next_run IS NOT NULL ORDER BY next_run ASC LIMIT 1",
+      )
+      .get() as { next_run: string } | undefined;
+    return row?.next_run || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Sync the alarm coordinator with the current earliest due task.
+ * Called after each poll iteration and after task creation/updates.
+ */
+function syncAlarmCoordinator(): void {
+  const nextRun = getNextDueTaskTime();
+  if (nextRun) {
+    getAlarmCoordinator()?.registerWakeUp("scheduler:next", nextRun);
+  }
 }
 
 /** Guard to prevent starting the loop more than once. */
@@ -298,6 +344,8 @@ export function startSchedulerLoop(deps: SchedulerDeps): () => void {
         deps.queue.enqueueTask(cur.id, () => runScheduledTask(cur, deps), `chat:${cur.chat_jid}`);
         schedulerMetrics.tasksEnqueued += 1;
       }
+      // Sync the alarm coordinator so the DO knows when to next wake us.
+      syncAlarmCoordinator();
     } catch (e) {
       log.error("Scheduler poll failed", {
         operation: "start_scheduler_loop.poll",
