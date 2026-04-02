@@ -26,6 +26,8 @@
 
 import { extname, resolve } from "path";
 import { createUuid } from "../../utils/ids.js";
+import { handleCfEndpoint } from "../../cloudflare/cf-endpoints.js";
+import { getActivityService } from "../../cloudflare/activity-service.js";
 import type { WebChannelLike } from "./core/web-channel-contracts.js";
 import { rememberWebOrigin } from "./auth/request-origin.js";
 import { handleAgentRoutes } from "./http/dispatch-agent.js";
@@ -106,6 +108,12 @@ export class RequestRouterService {
     const url = new URL(req.url);
     const pathname = url.pathname;
 
+    // ── Cloudflare internal endpoints (before auth, before remote) ──
+    if (pathname.startsWith("/_cf/")) {
+      const cfResponse = await handleCfEndpoint(req, pathname);
+      if (cfResponse) return cfResponse;
+    }
+
     if (pathname.startsWith("/api/remote/")) {
       return await this.channel.handleRemote(req);
     }
@@ -117,6 +125,16 @@ export class RequestRouterService {
     const guardResponse = await enforceRequestGuards(this.channel, req, pathname, flags);
     if (guardResponse) {
       return guardResponse;
+    }
+
+    // Touch user-interaction timestamp for Cloudflare idle tracking.
+    // Placed AFTER auth guards so unauthenticated requests don't keep the
+    // container awake. Excluded: /events (SSE), static assets.
+    if (
+      pathname !== "/events" &&
+      !pathname.startsWith("/static/")
+    ) {
+      getActivityService()?.touchUserInteraction();
     }
 
     const authRouteResponse = await handleAuthRoutes(this.channel, req, flags);

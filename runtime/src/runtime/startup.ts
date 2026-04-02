@@ -110,10 +110,16 @@ export async function startOptionalPushoverChannel(): Promise<PushoverChannel | 
   return pushover;
 }
 
+/** Options for WhatsApp channel creation. */
+export interface CreateWhatsAppChannelOptions {
+  /** When true, force the no-op stub regardless of phone configuration. */
+  disable?: boolean;
+}
+
 /** Build WhatsApp channel with runtime callbacks and pairing IPC integration. */
-export function createWhatsAppChannel(state: RuntimeState): WhatsAppChannel {
+export function createWhatsAppChannel(state: RuntimeState, options?: CreateWhatsAppChannelOptions): WhatsAppChannel {
   const whatsAppConfig = getWhatsAppConfig();
-  if (!whatsAppConfig.phoneNumber) {
+  if (options?.disable || !whatsAppConfig.phoneNumber) {
     // Return a no-op stub when WhatsApp is not configured.
     // The runtime expects a whatsapp object with connect/disconnect/sendMessage/setTyping.
     return {

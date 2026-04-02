@@ -69,6 +69,10 @@ const envConfig = readEnvFile([
   "PICLAW_REMOTE_INTEROP_DECISION_MODEL",
   "PICLAW_LOG_LEVEL",
   "LOG_LEVEL",
+  "PICLAW_CF_ENABLED",
+  "PICLAW_CF_INTERNAL_SECRET",
+  "PICLAW_CF_SSE_IDLE_TIMEOUT",
+  "PICLAW_CF_WHATSAPP_MODE",
 ]);
 
 // ---------------------------------------------------------------------------
@@ -871,4 +875,87 @@ export const PUSHOVER_CONFIG = Object.freeze<PushoverConfig>({
 /** Return the grouped Pushover settings for startup wiring and tests. */
 export function getPushoverConfig(): Readonly<PushoverConfig> {
   return PUSHOVER_CONFIG;
+}
+
+// ---------------------------------------------------------------------------
+// Cloudflare Containers – idling / cost-optimisation settings.
+// ---------------------------------------------------------------------------
+
+/**
+ * WhatsApp operating mode when running on Cloudflare Containers.
+ *
+ * - `"disabled"` – Baileys is not loaded; the no-op stub is used.  Full
+ *   container idling is available.
+ * - `"keep-awake"` – Baileys connects normally.  The Container DO sets
+ *   `keepAlive = true` so the container never sleeps (no idling savings).
+ * - `"cloud-api"` – (Future) Webhook-based WhatsApp Cloud API.  Compatible
+ *   with full idling.
+ */
+export type CfWhatsAppMode = "disabled" | "keep-awake" | "cloud-api";
+
+/** Typed Cloudflare Containers settings grouped for runtime wiring. */
+export interface CloudflareConfig {
+  /** Master switch – gates all CF-specific behaviour. */
+  enabled: boolean;
+  /** Shared secret protecting the internal `/_cf/*` endpoints. */
+  internalSecret: string;
+  /**
+   * How long an SSE-only idle period (no real user interaction) must last
+   * before the activity service considers the container idle.  Milliseconds.
+   * Default: 5 minutes (300 000 ms).
+   */
+  sseIdleTimeoutMs: number;
+  /** WhatsApp operating mode on Cloudflare (see {@link CfWhatsAppMode}). */
+  whatsappMode: CfWhatsAppMode;
+}
+
+function parseCfWhatsAppMode(raw: string | undefined): CfWhatsAppMode {
+  const normalized = (raw || "").trim().toLowerCase();
+  if (normalized === "keep-awake" || normalized === "keep_awake" || normalized === "keepawake") {
+    return "keep-awake";
+  }
+  if (normalized === "cloud-api" || normalized === "cloud_api" || normalized === "cloudapi") {
+    return "cloud-api";
+  }
+  return "disabled";
+}
+
+const cfConfig =
+  piclawConfig.cloudflare && typeof piclawConfig.cloudflare === "object"
+    ? (piclawConfig.cloudflare as Record<string, unknown>)
+    : piclawConfig;
+
+/** Grouped Cloudflare Containers settings. */
+export const CLOUDFLARE_CONFIG = Object.freeze<CloudflareConfig>({
+  enabled:
+    pickBoolean(
+      { PICLAW_CF_ENABLED: process.env.PICLAW_CF_ENABLED ?? envConfig.PICLAW_CF_ENABLED },
+      ["PICLAW_CF_ENABLED"],
+    ) ?? pickBoolean(cfConfig, ["enabled", "cf_enabled", "PICLAW_CF_ENABLED"]) ?? false,
+  internalSecret:
+    process.env.PICLAW_CF_INTERNAL_SECRET ||
+    envConfig.PICLAW_CF_INTERNAL_SECRET ||
+    pickString(cfConfig, ["internalSecret", "internal_secret", "PICLAW_CF_INTERNAL_SECRET"]) ||
+    "",
+  sseIdleTimeoutMs: (() => {
+    const parsed = parseInt(
+      process.env.PICLAW_CF_SSE_IDLE_TIMEOUT ||
+        envConfig.PICLAW_CF_SSE_IDLE_TIMEOUT ||
+        String(
+          pickNumber(cfConfig, ["sseIdleTimeoutMs", "sse_idle_timeout_ms", "PICLAW_CF_SSE_IDLE_TIMEOUT"]) ?? 300000,
+        ),
+      10,
+    );
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : 300000;
+  })(),
+  whatsappMode: parseCfWhatsAppMode(
+    process.env.PICLAW_CF_WHATSAPP_MODE ||
+      envConfig.PICLAW_CF_WHATSAPP_MODE ||
+      pickString(cfConfig, ["whatsappMode", "whatsapp_mode", "PICLAW_CF_WHATSAPP_MODE"]),
+  ),
+});
+
+/** Return the grouped Cloudflare Containers settings for runtime wiring and tests. */
+export function getCloudflareConfig(): Readonly<CloudflareConfig> {
+  return CLOUDFLARE_CONFIG;
 }
