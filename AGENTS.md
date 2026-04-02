@@ -25,7 +25,7 @@ All build/lint/test targets are in the root `Makefile` and `package.json` script
 
 ### Gotchas
 
-- The test suite hardcodes `/workspace/piclaw` as the expected repo root in a few path-resolution tests (`vendor-workflow.test.ts`, `repo-dev-command.test.ts`). When the repo is checked out at `/workspace` directly (as in Cloud Agent VMs), ~23 tests fail with path mismatches. These are pre-existing and unrelated to code changes.
+- The test suite hardcodes `/workspace/piclaw` as the expected repo root in a few path-resolution tests (`vendor-workflow.test.ts`, `repo-dev-command.test.ts`). When the repo is checked out at `/workspace` directly (as in Cloud Agent VMs), ~23 tests fail with path mismatches. These are pre-existing and unrelated to code changes. **Workaround:** Create a symlink to satisfy the hardcoded paths: `ln -s /workspace /workspace/piclaw`.
 - Web assets must be built (`bun run build:web`) before the dev server can serve the UI. The build is idempotent and safe to re-run.
 - Tests must run sequentially (`--max-concurrency=1`) for SQLite safety. The `make test` / `bun run test` scripts enforce this.
 - The dev server creates state in `/workspace/.piclaw/` (SQLite DB, IPC files). Do not delete `messages.db`.
