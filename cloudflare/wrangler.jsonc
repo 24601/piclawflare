@@ -1,0 +1,62 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "piclawflare",
+  "main": "src/worker.ts",
+  "compatibility_date": "2025-04-01",
+
+  // ---------------------------------------------------------------------------
+  // Container definition – PiClaw runs inside a single container instance.
+  // The Dockerfile at the repo root builds the image; max_instances = 1 because
+  // PiClaw is a single-user application with a local SQLite database.
+  // ---------------------------------------------------------------------------
+  "containers": [
+    {
+      "class_name": "PiClawContainer",
+      "image": "../Dockerfile",
+      "max_instances": 1
+    }
+  ],
+
+  // ---------------------------------------------------------------------------
+  // Durable Object binding – the Worker routes all requests through the DO,
+  // which manages the container lifecycle (start, sleep, wake, alarm).
+  // ---------------------------------------------------------------------------
+  "durable_objects": {
+    "bindings": [
+      {
+        "class_name": "PiClawContainer",
+        "name": "PICLAW_CONTAINER"
+      }
+    ]
+  },
+
+  // ---------------------------------------------------------------------------
+  // Migrations – required for Durable Objects with SQLite storage.
+  // ---------------------------------------------------------------------------
+  "migrations": [
+    {
+      "new_sqlite_classes": ["PiClawContainer"],
+      "tag": "v1"
+    }
+  ],
+
+  // ---------------------------------------------------------------------------
+  // Cron trigger – belt-and-suspenders fallback for scheduled task wake-ups.
+  // Fires every minute; the DO checks whether any alarms were missed.
+  // ---------------------------------------------------------------------------
+  "triggers": {
+    "crons": ["* * * * *"]
+  },
+
+  // ---------------------------------------------------------------------------
+  // Environment variables – defaults can be overridden per-environment.
+  // These are read by the DO class (container.ts), not by the container itself.
+  // Container-side env vars are set via the Container class `env` property or
+  // via the Dockerfile / docker-compose.
+  // ---------------------------------------------------------------------------
+  "vars": {
+    "PICLAW_CF_SLEEP_AFTER": "10m",
+    "PICLAW_CF_CONTAINER_NAME": "piclaw-main",
+    "PICLAW_CF_WHATSAPP_MODE": "disabled"
+  }
+}

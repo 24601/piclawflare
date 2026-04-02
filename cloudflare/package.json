@@ -1,0 +1,21 @@
+{
+  "name": "piclawflare",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Cloudflare Worker gateway for PiClaw — manages container lifecycle, idling, and wake-on-demand.",
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "types": "wrangler types",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@cloudflare/containers": "0.2.2"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "4.20260402.1",
+    "typescript": "5.9.3",
+    "wrangler": "4.80.0"
+  }
+}
