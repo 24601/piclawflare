@@ -207,9 +207,12 @@ async function handleTasksDue(): Promise<Response> {
 
   try {
     await deps.triggerDueTasks();
-    // After executing, return the next due time so the DO can set its alarm.
-    const nextRunAt = deps.getNextDueTaskTime();
-    return json({ ok: true, nextRunAt });
+    // Tasks are now enqueued on the lane-aware queue and will execute
+    // asynchronously. We intentionally do NOT return nextRunAt here because
+    // the tasks haven't actually run yet — their next_run values in the DB
+    // are stale. The DO calls syncNextAlarm() separately after this returns,
+    // and the scheduler's own alarm sync runs after each task completes.
+    return json({ ok: true });
   } catch (err) {
     log.error("Failed to trigger due tasks", {
       operation: "tasks_due",

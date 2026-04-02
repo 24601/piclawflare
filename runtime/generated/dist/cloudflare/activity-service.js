@@ -83,10 +83,23 @@ export class ActivityService {
     /** Return a full status snapshot for the `/_cf/activity` endpoint. */
     getStatus() {
         const idle = this.isIdle();
+        let idleSinceMs = null;
+        if (idle) {
+            if (this.idleSince) {
+                // Fully idle (no activities at all).
+                idleSinceMs = Date.now() - this.idleSince;
+            }
+            else if (this.onlySseClientsRemain()) {
+                // SSE-only idle — effectively idle since the SSE timeout elapsed
+                // after the last user interaction.
+                const effectiveIdleSince = this.lastUserInteraction + this.sseIdleTimeoutMs;
+                idleSinceMs = Math.max(0, Date.now() - effectiveIdleSince);
+            }
+        }
         return {
             idle,
             activities: Array.from(this.activities.values()),
-            idleSinceMs: idle && this.idleSince ? Date.now() - this.idleSince : null,
+            idleSinceMs,
             lastUserInteractionMs: this.lastUserInteraction,
         };
     }

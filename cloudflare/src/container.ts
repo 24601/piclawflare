@@ -154,6 +154,21 @@ export class PiClawContainer extends Container<Env> {
         console.error("[PiClawContainer] Failed to start container:", err);
       }
 
+      // Health probes (polled by the wake page every 2s) should pass through
+      // immediately — the endpoint returns 503 when not ready, which is what
+      // the wake page expects.  Blocking here would make each poll hang for
+      // the full startup duration, defeating the poll interval.
+      if (pathname === "/_cf/health") {
+        try {
+          return await super.fetch(request);
+        } catch {
+          return new Response(
+            JSON.stringify({ status: "starting" }),
+            { status: 503, headers: { "Content-Type": "application/json" } },
+          );
+        }
+      }
+
       // For browser requests, show the loading page immediately.
       if (this.acceptsHtml(request)) {
         return this.serveWakePage();
